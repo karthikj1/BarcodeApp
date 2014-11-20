@@ -1,3 +1,8 @@
+# Barcode Localizer App for Helios Project
+==========================================
+
+Android app to integrate with BarcodeLocalizer code - takes pictures and uploads to Picasa web account.
+
 The libraries that need to be included are as follows:
 
 google-play-services.jar - needs to be referenced as a library project
