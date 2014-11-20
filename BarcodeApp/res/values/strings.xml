@@ -1,0 +1,9 @@
+<resources>
+
+    <string name="app_name">BarcodeApp</string>
+    <string name="Login">Log in</string>
+    <string name="Logout">Log out</string>
+    <string name="account">Account</string>
+    <string name="unrecoverable_error">Unrecoverable Play Services error</string>
+
+</resources>
