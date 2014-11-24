@@ -6,11 +6,11 @@ Android app to integrate with BarcodeLocalizer code - takes pictures and uploads
 ## Downloading compiled APK file
 --------------------------------
 
-The compiled APK file BarcodeApp.apk is in the directory BarcodeApp/bin. First download OpenCV manager from the Google Play store and then install this APK file using adb install.
+The compiled APK file BarcodeApp.apk is in the directory BarcodeApp/bin. First download OpenCV Manager from the Google Play store and then install this APK file using adb install.
 
 ## Building from sources
 ------------------------
-All the source files, AndroidManifest.xml and res files are available and can be importing in Eclipse using Import -> Android -> Existing Android code into Workspace.
+All the source files, AndroidManifest.xml and res files are available and can be imported in Eclipse using Import -> Android -> Existing Android code into Workspace.
 
 The libraries that need to be included are as follows:
 
