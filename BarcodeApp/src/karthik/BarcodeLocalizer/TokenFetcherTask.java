@@ -74,8 +74,10 @@ class TokenFetcherTask extends AsyncTask<Void, Void, String>{
 		 *             if communication with user info server failed.
 		 */
 		try {
+			Log.i(TAG, "Trying to get token for scope " + mScope + " for user " + mEmail);
 			String token = GoogleAuthUtil.getToken(mActivity, mEmail, mScope); 
 			Log.i(TAG, "Got token for scope " + mScope + " for user " + mEmail);
+			mActivity.resetEmail();
 			return token;
 			
 		} catch (UserRecoverableAuthException userRecoverableException) {

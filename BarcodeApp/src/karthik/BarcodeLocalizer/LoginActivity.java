@@ -132,8 +132,6 @@ public class LoginActivity extends Activity {
             if (isDeviceOnline()) {
                 TokenFetcherTask task = new TokenFetcherTask(LoginActivity.this, mEmail, SCOPE);
                 task.execute();
-             // set username to null so you pick account explicitly for next login
-                mEmail = null; 
             } else {
                 Toast.makeText(this, "No network connection available", Toast.LENGTH_SHORT).show();
             }
@@ -159,6 +157,14 @@ public class LoginActivity extends Activity {
         return false;
     }
 
+    public void resetEmail(){
+    	/*
+    	 * called by TokenFetcherTask to reset username to null after 
+    	 * successfully retrieving token. This ensures that the user has to explicitly 
+    	 * log in each time.  
+    	 */
+    	mEmail = null;
+    }
     public void setToken(String token){
     	// called by TokenFetcherTask to set the token after it has been retrieved
     	mToken = token;
