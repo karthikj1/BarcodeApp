@@ -26,6 +26,7 @@ import java.util.List;
 
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.CompressFormat;
+import android.location.Location;
 import android.os.AsyncTask;
 import android.util.Log;
 
@@ -55,13 +56,16 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 	protected String mEmail;
 	protected Bitmap img;
 	protected String token;
-
-	ImageUploader(BarcodeActivity activity, String email, Bitmap bmp, ToastDisplayer toaster, String tok) {
+	private Location pic_location;
+	
+	ImageUploader(BarcodeActivity activity, String email, Bitmap bmp, ToastDisplayer toaster
+			, String tok, Location loc) {
 		this.mActivity = activity;		
 		this.mEmail = email;
 		this.img = bmp;
 		this.toastDisplay = toaster;
 		this.token = tok;
+		this.pic_location = loc;
 	}
 
 	@Override
@@ -141,7 +145,7 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 
 		PhotoEntry myPhoto = new PhotoEntry();
 		
-		SimpleDateFormat s = new SimpleDateFormat("ddMMyyyyhhmmss");
+		SimpleDateFormat s = new SimpleDateFormat("dd_MM_yyyy_hh_mm_ss");
 		String timeStamp = s.format(new Date());
 		String title = "Barcode_" + timeStamp;
 		myPhoto.setTitle(new PlainTextConstruct(title));
@@ -152,7 +156,10 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 
 		MediaByteArraySource myMedia = new MediaByteArraySource(bos.toByteArray(), "image/jpeg");
 		myPhoto.setMediaSource(myMedia);
-
+		
+		if(pic_location != null) // only set location if it is a valid Location object
+			myPhoto.setGeoLocation(pic_location.getLatitude(), pic_location.getLongitude());
+		
 		try {
 			picasaService.insert(albumURL, myPhoto);
 		} catch (Exception e) {

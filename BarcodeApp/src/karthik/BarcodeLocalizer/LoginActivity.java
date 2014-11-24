@@ -93,34 +93,33 @@ public class LoginActivity extends Activity {
         show("Unknown error, click the button again");
     }
 
-    /** Called by button in the layout */
-    public void LoginUser(View view) {
+    private boolean isGooglePlayServicesConnected(){
         int statusCode = GooglePlayServicesUtil.isGooglePlayServicesAvailable(this);
         if (statusCode == ConnectionResult.SUCCESS) {
-            getUsername();
+            return true;
         } else if (GooglePlayServicesUtil.isUserRecoverableError(statusCode)) {
             Dialog dialog = GooglePlayServicesUtil.getErrorDialog(
                     statusCode, this, 0 /* request code not used */);
-            dialog.show();
+            if (dialog != null)
+            	dialog.show();
+            return false;
         } else {
             Toast.makeText(this, R.string.unrecoverable_error, Toast.LENGTH_SHORT).show();
-        }
+            return false;
+        }   	
+    }
+    
+    /** Called by button in the layout */
+    public void LoginUser(View view) {
+    	if(isGooglePlayServicesConnected())
+    		getUsername();
     }
 
 
     /** Called by button in the layout */
     public void LogoutUser(View view) {
-        int statusCode = GooglePlayServicesUtil.isGooglePlayServicesAvailable(this);
-        if (statusCode == ConnectionResult.SUCCESS) {
-        	if(mToken != null)
-        		new TokenClearerTask(this, mToken).execute();
-        } else if (GooglePlayServicesUtil.isUserRecoverableError(statusCode)) {
-            Dialog dialog = GooglePlayServicesUtil.getErrorDialog(
-                    statusCode, this, 0 /* request code not used */);
-            dialog.show();
-        } else {
-            Toast.makeText(this, R.string.unrecoverable_error, Toast.LENGTH_SHORT).show();
-        }
+    	if(isGooglePlayServicesConnected() && mToken != null)
+    		new TokenClearerTask(this, mToken).execute();
     }
 
     /** Attempt to get the user name. If the email address isn't known yet,
@@ -215,6 +214,5 @@ public class LoginActivity extends Activity {
                 }
             }
         });
-    }
-    
+    }    
 }

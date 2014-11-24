@@ -26,7 +26,9 @@ import org.opencv.core.Size;
 
 import android.app.Activity;
 import android.content.Intent;
+import android.content.IntentSender;
 import android.graphics.Bitmap;
+import android.location.Location;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.Menu;
@@ -35,6 +37,9 @@ import android.view.SubMenu;
 import android.view.WindowManager;
 import android.widget.Toast;
 
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GooglePlayServicesClient;
+import com.google.android.gms.location.LocationClient;
 import com.google.zxing.BinaryBitmap;
 import com.google.zxing.DecodeHintType;
 import com.google.zxing.LuminanceSource;
@@ -45,7 +50,8 @@ import com.google.zxing.ReaderException;
 import com.google.zxing.Result;
 import com.google.zxing.common.HybridBinarizer;
 
-public class BarcodeActivity extends Activity implements CvCameraViewListener2{
+public class BarcodeActivity extends Activity implements CvCameraViewListener2, 
+			GooglePlayServicesClient.ConnectionCallbacks, GooglePlayServicesClient.OnConnectionFailedListener{
 	
     private static final String  TAG = "PicasaBarcodeActivity";
     private CameraBridgeViewBase mOpenCvCameraView;
@@ -56,6 +62,10 @@ public class BarcodeActivity extends Activity implements CvCameraViewListener2{
     private final Map<DecodeHintType, Object> hints = new EnumMap<DecodeHintType, Object>(DecodeHintType.class);
     private final Scalar barcode_area_colour = new Scalar(0, 0, 255); 
 
+    private final static int CONNECTION_FAILURE_RESOLUTION_REQUEST = 9000;
+    private LocationClient mLocationClient;
+    private Location mLocation;
+    
     private Barcode barcode = null;
     private int cameraIndex = 0;
     
@@ -112,6 +122,9 @@ public class BarcodeActivity extends Activity implements CvCameraViewListener2{
         Intent intent = getIntent();
         mEmail = intent.getStringExtra(TokenFetcherTask.EMAIL_MSG);
         mToken = intent.getStringExtra(TokenFetcherTask.TOKEN_MSG);
+        
+        mLocationClient = new LocationClient(this, this, this);
+        
         Log.i(TAG, "Scanning for barcodes with id " + mEmail);
     }
 
@@ -127,6 +140,23 @@ public class BarcodeActivity extends Activity implements CvCameraViewListener2{
     {
         super.onResume();
         OpenCVLoader.initAsync(OpenCVLoader.OPENCV_VERSION_2_4_9, this, mLoaderCallback);
+    }
+
+    @Override
+    protected void onStart() {
+        super.onStart();
+        // Connect the client.
+        mLocationClient.connect();
+    }
+
+    /*
+     * Called when the Activity is no longer visible.
+     */
+    @Override
+    protected void onStop() {
+        // Disconnecting the client invalidates it.
+        mLocationClient.disconnect();
+        super.onStop();
     }
 
     public void onDestroy() {
@@ -205,8 +235,16 @@ public class BarcodeActivity extends Activity implements CvCameraViewListener2{
             		// now upload it to Picasa
 	            	bmp = Bitmap.createBitmap(rgba.cols(), rgba.rows(), Bitmap.Config.ARGB_8888);
 	            	Utils.matToBitmap(rgba, bmp);
-	            	new ImageUploader(this, mEmail, bmp, toastDisplay, mToken).execute();
+	            	// get location information to store with picture
+	            	mLocation = mLocationClient.getLastLocation();
+	            	if(mLocation != null){ // we got a valid location from LocationServices
+	            		Log.i(TAG, "Got location Lat:" + mLocation.getLatitude() + " Lon: " + mLocation.getLongitude());
 	            	}
+	            	else{
+	            		Log.i(TAG, "Could not get a location value");
+	            	}
+            		new ImageUploader(this, mEmail, bmp, toastDisplay, mToken, mLocation).execute();
+	            }
             }
         }
     	}
@@ -247,5 +285,90 @@ public class BarcodeActivity extends Activity implements CvCameraViewListener2{
 
     }
     
- }
+    /*
+     * Callback methods for Google Location Services
+     */
+    
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent intent) {
+
+        // Choose what to do based on the request code
+        switch (requestCode) {
+
+            // If the request code matches the code sent in onConnectionFailed
+            case CONNECTION_FAILURE_RESOLUTION_REQUEST :
+
+                switch (resultCode) {
+                    // If Google Play services resolved the problem
+                    case Activity.RESULT_OK:
+
+                        // Log the result
+                        Log.d(TAG, "Connected to Location services");
+                    break;
+
+                    // If any other result was returned by Google Play services
+                    default:
+                        // Log the result
+                        Log.d(TAG, "Location services not resolved - result code " + resultCode);
+                        toastDisplay.showText("Unable to connect to Location Services");
+                    break;
+                }
+
+            // If any other request code was received
+            default:
+               // Report that this Activity received an unknown requestCode
+               Log.d(TAG, "Received unknown request code " + requestCode);
+               break;
+        }
+    }
+
+    public void onConnected(Bundle dataBundle){}
+    
+    /*
+     * Called by Location Services if the connection to the
+     * location client drops because of an error.
+     */
+    @Override
+    public void onDisconnected() {
+        // Display the connection status
+    	Log.i(TAG, "Disconnected. Location information no longer available.");
+        toastDisplay.showText("Disconnected. Location information no longer available.");
+        }    
+    /*
+     * Called by Location Services if the attempt to
+     * Location Services fails.
+     */
+    @Override
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+        /*
+         * Google Play services can resolve some errors it detects.
+         * If the error has a resolution, try sending an Intent to
+         * start a Google Play services activity that can resolve
+         * error.
+         */
+        if (connectionResult.hasResolution()) {
+            try {
+                // Start an Activity that tries to resolve the error
+                connectionResult.startResolutionForResult(
+                        this, CONNECTION_FAILURE_RESOLUTION_REQUEST);
+                /*
+                 * Thrown if Google Play services canceled the original
+                 * PendingIntent
+                 */
+            } catch (IntentSender.SendIntentException e) {
+                // Log the error
+                Log.e(TAG, "Error when connecting to Location Services " + e.getMessage());
+            }
+        } else {
+            /*
+             * If no resolution is available, display a toast to the
+             * user with the error.
+             */
+        	Log.e(TAG, "Unrecoverable error when connecting to Location Services " + connectionResult.getErrorCode());
+            toastDisplay.showText(R.string.unrecoverable_error + " " + connectionResult.getErrorCode());
+            this.finish();
+        }
+    }
+}	
+
 

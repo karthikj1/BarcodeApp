@@ -5,5 +5,6 @@
     <string name="Logout">Log out</string>
     <string name="account">Account</string>
     <string name="unrecoverable_error">Unrecoverable Play Services error</string>
-
+    <string name="connected">connected to Location Services</string>
+    
 </resources>
