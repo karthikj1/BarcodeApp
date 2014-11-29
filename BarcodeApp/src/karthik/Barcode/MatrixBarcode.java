@@ -41,6 +41,7 @@ public class MatrixBarcode extends Barcode {
     private static final MatOfInt mChannels = new MatOfInt(0);
     private static MatOfInt hist = new MatOfInt();
     private static Mat histIdx = new Mat();
+    private static final Mat histMask = new Mat(); // empty Mat to use as mask for histogram calculation
     
   
     public MatrixBarcode(String filename, boolean debug, TryHarderFlags flag) throws IOException{
@@ -63,7 +64,7 @@ public class MatrixBarcode extends Barcode {
     //    connectComponents();
         List<MatOfPoint> contours = new ArrayList<MatOfPoint>();
         // findContours modifies source image so probabilities pass it a clone of img_details.probabilities
-        // img_details.probabilities will be used again shortly to expand the barcode region
+        // img_details.probabilities will be used again shortly to expand the bsrcode region
         Imgproc.findContours(img_details.probabilities.clone(),
             contours, new Mat(), Imgproc.RETR_LIST, Imgproc.CHAIN_APPROX_SIMPLE);
         
@@ -194,7 +195,7 @@ public class MatrixBarcode extends Barcode {
                 // if gradient density is below the threshold level, prob of matrix code in this tile is 0
                     continue;
                 imgWindow = img_details.gradient_direction.submat(i, bottom_row, j, right_col);
-                Imgproc.calcHist(Arrays.asList(imgWindow), mChannels, new Mat(), hist, mHistSize, mRanges, false);
+                Imgproc.calcHist(Arrays.asList(imgWindow), mChannels, histMask, hist, mHistSize, mRanges, false);
                 Core.sortIdx(hist, histIdx, Core.SORT_EVERY_COLUMN + Core.SORT_DESCENDING);
 
                 max_angle_idx = (int) histIdx.get(0, 0)[0];
