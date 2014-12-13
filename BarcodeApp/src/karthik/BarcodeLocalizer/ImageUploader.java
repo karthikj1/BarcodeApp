@@ -18,7 +18,6 @@ package karthik.BarcodeLocalizer;
 
 import java.io.ByteArrayOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.URL;
 import java.text.SimpleDateFormat;
@@ -34,7 +33,10 @@ import android.location.Location;
 import android.net.ConnectivityManager;
 import android.net.NetworkInfo;
 import android.os.AsyncTask;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.Log;
+import android.widget.Toast;
 
 import com.google.gdata.client.photos.PicasawebService;
 import com.google.gdata.data.Link;
@@ -53,12 +55,14 @@ import com.google.gdata.util.ServiceForbiddenException;
  * Display personalized greeting.
  */
 public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
-	private static final String TAG = "PicasaTokenTask";
+	private static final String TAG = "PicasaImageUploaderTask";
 	protected Context con;
 	private static final String PICASA_PREFIX = "https://picasaweb.google.com/data/feed/api/user/";
 	private static final String SMARTHOME_ALBUM_NAME = "smarter";
 	PicasawebService picasaService;
-	private ToastDisplayer toastDisplay;
+
+	// used to access UI thread for toasts
+	private static Handler handler = new Handler(Looper.getMainLooper());
 		
 	protected String mEmail;
 	protected Bitmap img;
@@ -68,24 +72,24 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 	private File video;
 	private boolean isVideo = false;
 	
-	ImageUploader(Activity activity, String email, Bitmap bmp, ToastDisplayer toaster
-			, String tok, Location loc, boolean WifiUploadOnly) {
-		this.con = activity;		
+	ImageUploader(Context con, String email, Bitmap bmp, String tok, Location loc, boolean WifiUploadOnly) {
+		this.con = con;		
 		this.mEmail = email;
 		this.img = bmp;
-		this.toastDisplay = toaster;
 		this.token = tok;
 		this.pic_location = loc;
 		this.WifiUploadOnly = WifiUploadOnly;
 		isVideo = false;
 	}
 
-	ImageUploader(Context con, String email, File videoFile, String tok, boolean WifiUploadOnly) {
+	ImageUploader(Context con, String email, File videoFile, String tok, Location loc, 
+			boolean WifiUploadOnly) {
 		this.con = con;
 		this.mEmail = email;
 		this.video = videoFile;
 		this.token = tok;
 		this.WifiUploadOnly = WifiUploadOnly;
+		this.pic_location = loc;
 		
 		isVideo = true;
 	}
@@ -95,7 +99,9 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 		// no upload if user wants to upload on wifi only and we are not on Wifi
 		if (WifiUploadOnly && !isWifiConnected()){
 			Log.i(TAG, "Upload unsuccessful - not on Wifi");
-			toastDisplay.showText("Upload unsuccessful - no on Wifi");
+			displayToast("Upload unsuccessful - not on Wifi", Toast.LENGTH_LONG);
+			// TODO: change this so it retries later instead of dropping the video
+			removeTempVideoFile();
 			return false;
 		}
 		// we are either on Wifi connection or user is fine with using mobile data
@@ -126,7 +132,6 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 				uploadImage(img, albumFeedURL);
 
 			Log.i(TAG, "Upload successful");
-		//	toastDisplay.showText("Upload successful");
 
 			return true;
 		}
@@ -139,6 +144,7 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 		} catch (ServiceException e) {
 			onError("ServiceException", e);
 		}
+		removeTempVideoFile();
 		return false;
 	}
 
@@ -146,7 +152,7 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 		if (e != null) {
 			Log.e(TAG, "Exception: ", e);
 		}
-		toastDisplay.showText(msg); // will be run in UI thread
+		displayToast(msg, Toast.LENGTH_SHORT);; // will be run in UI thread
 
 	}
 
@@ -174,7 +180,7 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 	protected void uploadImage(Bitmap bmp, URL albumURL)
 			throws IOException, ServiceException {
 
-		Log.i(TAG, "Trying to upload image...");
+		Log.d(TAG, "Trying to upload image...");
 		PhotoEntry myPhoto = new PhotoEntry();
 		
 		SimpleDateFormat s = new SimpleDateFormat("dd_MM_yyyy_hh_mm_ss");
@@ -195,16 +201,16 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 		try {
 			picasaService.insert(albumURL, myPhoto);
 		} catch (Exception e) {
-			Log.i(TAG, "Insertion error: " + e);
-			toastDisplay.showText("Insertion error: " + e);
+			Log.i(TAG, "Insertion error: " + e.getMessage());
+			displayToast("Insertion error: Could not upload photo ", Toast.LENGTH_SHORT);
 		}
-		Log.i(TAG, "Photo uploaded");
+		Log.d(TAG, "Photo uploaded");
 	}
 
 	protected void uploadVideo(URL albumURL)
 			throws IOException, ServiceException {
 
-		Log.i(TAG, "Trying to upload video...");
+		Log.d(TAG, "Trying to upload video " + video.getName() + "...");
 		PhotoEntry myPhoto = new PhotoEntry();
 		
 		String title = video.getName();
@@ -221,11 +227,11 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 		try {
 			picasaService.insert(albumURL, myPhoto);
 		} catch (Exception e) {
-			Log.i(TAG, "Insertion error: " + e.getMessage());
-	//		toastDisplay.showText("Insertion error: " + e.getMessage());
+			Log.w(TAG, "Insertion error: " + e.getMessage());
+			displayToast("Insertion error: " + e.getMessage(), Toast.LENGTH_LONG);
 		}
-		Log.i(TAG, "Video uploaded");
-		video.delete(); // delete the video file from storage after it has been uploaded
+		Log.d(TAG, "Uploaded video "+ video.getName());
+		removeTempVideoFile(); // delete the video file from storage after it has been uploaded
 	}
 
 	private AlbumEntry createAlbum(final String albumName, final String albumDescription) 
@@ -258,5 +264,23 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
             }
         }
         return false;
+	}
+	
+	private void displayToast(final String text, final int toast_length){
+		// helper method uses the main thread to display a toast
+		// we use this because if this class is used by a Service
+		// as opposed to an Activity, we can't access the UI thread 
+		// in the normal way using RunOnUIThread
+		handler.post(new Runnable(){
+			public void run(){
+				Toast.makeText(con, text, toast_length).show();
+			}
+		});
+	}
+	
+	private void removeTempVideoFile(){
+		// remove temp video file from phone storage
+		if(isVideo)
+			video.delete();
 	}
 }

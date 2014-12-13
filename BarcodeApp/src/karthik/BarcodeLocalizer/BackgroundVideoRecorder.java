@@ -3,6 +3,8 @@ package karthik.BarcodeLocalizer;
 import java.io.File;
 import java.io.IOException;
 import java.text.SimpleDateFormat;
+import java.util.Timer;
+import java.util.TimerTask;
 
 import android.app.Notification;
 import android.app.PendingIntent;
@@ -48,6 +50,9 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     private String token;
     private String outputFile;
   
+    private Timer uploadTimer;
+    private long UPLOAD_INTERVAL = 60000;
+    
     @Override
     public void onCreate() {
     	
@@ -72,36 +77,49 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     	token = intent.getStringExtra(LoginActivity.TOKEN_MSG);
     	String requestType = intent.getStringExtra(REQUEST_TYPE);
     	
-    	Log.d(TAG, "onStartCommand received request " + requestType);
+    	Log.v(TAG, "onStartCommand received request " + requestType);
 
     	if(requestType.equals(REQUEST_TYPE_START)){
-        	Log.d(TAG, "Started service for user " + mEmail);
+        	Log.i(TAG, "Started service for user " + mEmail);
         	createStopPauseNotification();
+        	// this is called only on the first creation of this class
+        	// so onSurfaceCreated starts the video recording
+        	startUploadTimer(UPLOAD_INTERVAL);
     	}
     	
     	if (requestType.equals(REQUEST_TYPE_PAUSE)){
-        	Log.d(TAG, "Paused recording for user " + mEmail);
+        	Log.i(TAG, "Paused recording for user " + mEmail);
         	mediaRecorder.stop();
         	releaseMediaRecorder();
         	createStopPlayNotification();
         	// upload video
-        	new ImageUploader(this, mEmail, new File(outputFile), token, WifiUploadOnly).execute();
+        	uploadTimer.cancel();
+        	uploadVideo();
     	}
     	    	
     	if (requestType.equals(REQUEST_TYPE_PLAY)){
-        	Log.d(TAG, "Restarted recording for user " + mEmail);
+        	Log.i(TAG, "Restarted recording for user " + mEmail);
         	createStopPauseNotification();
         	startRecordingVideo(surfHolder);
+        	startUploadTimer(UPLOAD_INTERVAL);
     	}
 
     	if (requestType.equals(REQUEST_TYPE_STOP)){
-        	Log.d(TAG, "Stopped service for user " + mEmail);
-           	new ImageUploader(this, mEmail, new File(outputFile), token, WifiUploadOnly).execute();
+        	Log.i(TAG, "Stopped service for user " + mEmail);
+        	uploadTimer.cancel();
+           	uploadVideo();
             stopSelf();
     	}
     	
     	return START_STICKY;
     }
+
+	/**
+	 * 
+	 */
+	private void uploadVideo() {
+		new ImageUploader(this, mEmail, new File(outputFile), token, null, WifiUploadOnly).execute();
+	}
   
     
     private void createStopPauseNotification() {
@@ -109,7 +127,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     	PendingIntent stopIntent = PendingIntent.getService(this, 0, getIntent(REQUEST_TYPE_STOP), PendingIntent.FLAG_CANCEL_CURRENT);    	    
     	PendingIntent pauseIntent = PendingIntent.getService(this, 1, getIntent(REQUEST_TYPE_PAUSE),  PendingIntent.FLAG_CANCEL_CURRENT);
 
-    	Log.d(TAG, "Created intents");
+    	Log.v(TAG, "Created intents");
     	// Start foreground service to avoid unexpected kill
         Notification notification = new Notification.Builder(this)
             .setContentTitle("Helios Background Video Recorder")
@@ -118,7 +136,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
             .addAction(R.drawable.pause, "Pause", pauseIntent)
             .addAction(R.drawable.stop, "Stop", stopIntent)
             .build();
-        Log.d(TAG, "Created notification");
+        Log.v(TAG, "Created notification");
         startForeground(NOTIFICATION_ID, notification);
     }
 
@@ -127,7 +145,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     	PendingIntent stopIntent = PendingIntent.getService(this, 0, getIntent(REQUEST_TYPE_STOP), PendingIntent.FLAG_CANCEL_CURRENT);    	    
     	PendingIntent playIntent = PendingIntent.getService(this, 2, getIntent(REQUEST_TYPE_PLAY),  PendingIntent.FLAG_CANCEL_CURRENT);
 
-    	Log.d(TAG, "Created stop and play intents");
+    	Log.v(TAG, "Created stop and play intents");
     	// Start foreground service to avoid unexpected kill
         Notification notification = new Notification.Builder(this)
             .setContentTitle("Helios Background Video Recorder")
@@ -136,7 +154,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
             .addAction(R.drawable.play, "Play", playIntent)
             .addAction(R.drawable.stop, "Stop", stopIntent)
             .build();
-        Log.d(TAG, "Created stop and play notification");
+        Log.v(TAG, "Created stop and play notification");
         startForeground(NOTIFICATION_ID, notification);
     }
 
@@ -146,7 +164,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
 		intent.putExtra(LoginActivity.TOKEN_MSG, token);
 		intent.putExtra(LoginActivity.EMAIL_MSG, mEmail);
 
-		Log.d(TAG, "Created " + requestType + " intent for " + mEmail);
+		Log.v(TAG, "Created " + requestType + " intent for " + mEmail);
     	return intent;
     	
     }
@@ -166,6 +184,11 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     			+ File.separator + "Helios_" + timeStamp + ".mp4";
 
     	camera = getCameraInstance();
+    	if(camera == null){
+    		Toast.makeText(this, "Camera unavailable or in use", Toast.LENGTH_LONG).show();
+    		createStopPlayNotification();
+    		return;
+    	}
         mediaRecorder = new MediaRecorder();
         camera.unlock();
 
@@ -211,18 +234,15 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     @Override
     public void onDestroy() {
     	
-    	Log.d(TAG, "BackgroundVideoRecorder Service is being destroyed");
+    	Log.v(TAG, "BackgroundVideoRecorder Service is being destroyed");
         mediaRecorder.stop();
-    //    mediaRecorder.reset();
         releaseMediaRecorder();
         
         windowManager.removeView(surfaceView);
-        File f = new File(outputFile);
-        Log.d(TAG, "File " + outputFile + " exists is " + f.exists());
-        Toast.makeText(this, "File " + outputFile + " exists is " + f.exists(), Toast.LENGTH_LONG).show();
     }
 
     private void releaseMediaRecorder(){
+    	// release MediaRecorder object when not needed
         mediaRecorder.release();
 
         camera.lock();
@@ -248,4 +268,22 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
         }
         return c; // returns null if camera is unavailable
     }
+    
+	private void startUploadTimer(long interval) {
+		// set up timer to upload video every <interval> milliseconds
+		// this is so that we don't breach file size limits on Picasa
+		uploadTimer = new Timer();
+		uploadTimer.scheduleAtFixedRate(new TimerTask() {
+			@Override
+			public void run() {
+				// first stop recording
+	        	mediaRecorder.stop();
+	        	releaseMediaRecorder();
+	        	// then upload video in background AsyncTask
+	        	uploadVideo();
+	        	// now reinitialize MediaRecorder and Camera and start recording video again
+	        	startRecordingVideo(surfHolder);
+			}
+		}, interval, interval);
+	}
 }

@@ -269,16 +269,16 @@ public class BarcodeActivity extends Activity implements CvCameraViewListener2,
 						mLocation = mLocationClient.getLastLocation();
 						if (mLocation != null) { // we got a valid location from
 													// LocationServices
-							Log.i(TAG,
+							Log.v(TAG,
 									"Got location Lat:"
 											+ mLocation.getLatitude()
 											+ " Lon: "
 											+ mLocation.getLongitude());
 						} else {
-							Log.i(TAG, "Could not get a location value");
+							Log.w(TAG, "Could not get a location value");
 						}
-						new ImageUploader(this, mEmail, bmp, toastDisplay,
-								mToken, mLocation, WifiUploadOnly).execute();
+						new ImageUploader(this, mEmail, bmp, mToken, mLocation, 
+								WifiUploadOnly).execute();
 					}
 				}
 			}
