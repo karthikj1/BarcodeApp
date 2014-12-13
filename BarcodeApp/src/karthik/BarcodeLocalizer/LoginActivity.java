@@ -1,18 +1,3 @@
-/*
- * Copyright 2012 The Android Open Source Project
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 
 package karthik.BarcodeLocalizer;
 
@@ -47,8 +32,13 @@ public class LoginActivity extends Activity {
 
     static final int REQUEST_CODE_GET_AUTH_TOKEN = 1003;
 
-    private String mEmail;
+	public static final String TOKEN_MSG = "ACCESS_TOKEN";
+	public static final String EMAIL_MSG = "USERNAME";
+
+	private String mEmail;
     private String mToken;
+    
+    private boolean localDecode = false;
     
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -111,10 +101,18 @@ public class LoginActivity extends Activity {
     
     /** Called by button in the layout */
     public void LoginUser(View view) {
+    	localDecode = true;
     	if(isGooglePlayServicesConnected())
     		getUsername();
     }
 
+
+    /** Called by button in the layout */
+    public void captureBackgroundVideo(View view) {
+    	localDecode = false;
+    	if(isGooglePlayServicesConnected())
+    		getUsername();
+    }
 
     /** Called by button in the layout */
     public void LogoutUser(View view) {
@@ -221,4 +219,8 @@ public class LoginActivity extends Activity {
             }
         });
     }    
+    
+    public boolean doLocalDecode(){
+    	return localDecode;
+    }
 }

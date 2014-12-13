@@ -17,6 +17,8 @@
 package karthik.BarcodeLocalizer;
 
 import java.io.ByteArrayOutputStream;
+import java.io.File;
+import java.io.FileInputStream;
 import java.io.IOException;
 import java.net.URL;
 import java.text.SimpleDateFormat;
@@ -24,9 +26,13 @@ import java.util.ArrayList;
 import java.util.Date;
 import java.util.List;
 
+import android.app.Activity;
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.Bitmap.CompressFormat;
 import android.location.Location;
+import android.net.ConnectivityManager;
+import android.net.NetworkInfo;
 import android.os.AsyncTask;
 import android.util.Log;
 
@@ -34,6 +40,7 @@ import com.google.gdata.client.photos.PicasawebService;
 import com.google.gdata.data.Link;
 import com.google.gdata.data.PlainTextConstruct;
 import com.google.gdata.data.media.MediaByteArraySource;
+import com.google.gdata.data.media.MediaFileSource;
 import com.google.gdata.data.photos.AlbumEntry;
 import com.google.gdata.data.photos.GphotoEntry;
 import com.google.gdata.data.photos.GphotoFeed;
@@ -47,7 +54,7 @@ import com.google.gdata.util.ServiceForbiddenException;
  */
 public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 	private static final String TAG = "PicasaTokenTask";
-	protected BarcodeActivity mActivity;
+	protected Context con;
 	private static final String PICASA_PREFIX = "https://picasaweb.google.com/data/feed/api/user/";
 	private static final String SMARTHOME_ALBUM_NAME = "smarter";
 	PicasawebService picasaService;
@@ -57,19 +64,42 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 	protected Bitmap img;
 	protected String token;
 	private Location pic_location;
+	private boolean WifiUploadOnly;
+	private File video;
+	private boolean isVideo = false;
 	
-	ImageUploader(BarcodeActivity activity, String email, Bitmap bmp, ToastDisplayer toaster
-			, String tok, Location loc) {
-		this.mActivity = activity;		
+	ImageUploader(Activity activity, String email, Bitmap bmp, ToastDisplayer toaster
+			, String tok, Location loc, boolean WifiUploadOnly) {
+		this.con = activity;		
 		this.mEmail = email;
 		this.img = bmp;
 		this.toastDisplay = toaster;
 		this.token = tok;
 		this.pic_location = loc;
+		this.WifiUploadOnly = WifiUploadOnly;
+		isVideo = false;
+	}
+
+	ImageUploader(Context con, String email, File videoFile, String tok, boolean WifiUploadOnly) {
+		this.con = con;
+		this.mEmail = email;
+		this.video = videoFile;
+		this.token = tok;
+		this.WifiUploadOnly = WifiUploadOnly;
+		
+		isVideo = true;
 	}
 
 	@Override
 	protected Boolean doInBackground(Void... params) {
+		// no upload if user wants to upload on wifi only and we are not on Wifi
+		if (WifiUploadOnly && !isWifiConnected()){
+			Log.i(TAG, "Upload unsuccessful - not on Wifi");
+			toastDisplay.showText("Upload unsuccessful - no on Wifi");
+			return false;
+		}
+		// we are either on Wifi connection or user is fine with using mobile data
+		// so go ahead with the upload
 		try {
 			picasaService = new PicasawebService("ImageUploader");
 			picasaService.setAuthSubToken(token);
@@ -87,15 +117,16 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 			if (HeliosAlbum == null)
 				HeliosAlbum = createAlbum(SMARTHOME_ALBUM_NAME, "Helios SmartHome Project Pics");
 
-			Log.i(TAG, "Trying to upload ...");
-
 			Link albumFeedLink = HeliosAlbum.getLink(
 					com.google.gdata.data.Link.Rel.FEED, null);
 			URL albumFeedURL = new URL(albumFeedLink.getHref());
-			uploadImage(img, albumFeedURL);
+			if(isVideo)
+				uploadVideo(albumFeedURL);
+			else
+				uploadImage(img, albumFeedURL);
 
 			Log.i(TAG, "Upload successful");
-			toastDisplay.showText("Upload successful");
+		//	toastDisplay.showText("Upload successful");
 
 			return true;
 		}
@@ -143,6 +174,7 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 	protected void uploadImage(Bitmap bmp, URL albumURL)
 			throws IOException, ServiceException {
 
+		Log.i(TAG, "Trying to upload image...");
 		PhotoEntry myPhoto = new PhotoEntry();
 		
 		SimpleDateFormat s = new SimpleDateFormat("dd_MM_yyyy_hh_mm_ss");
@@ -169,6 +201,32 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 		Log.i(TAG, "Photo uploaded");
 	}
 
+	protected void uploadVideo(URL albumURL)
+			throws IOException, ServiceException {
+
+		Log.i(TAG, "Trying to upload video...");
+		PhotoEntry myPhoto = new PhotoEntry();
+		
+		String title = video.getName();
+		myPhoto.setTitle(new PlainTextConstruct(title));
+
+		// read MPEG-4 video file and make it a byte array
+
+		MediaFileSource myMedia = new MediaFileSource(video, "video/mpeg4");
+		myPhoto.setMediaSource(myMedia);
+		
+		if(pic_location != null) // only set location if it is a valid Location object
+			myPhoto.setGeoLocation(pic_location.getLatitude(), pic_location.getLongitude());
+		
+		try {
+			picasaService.insert(albumURL, myPhoto);
+		} catch (Exception e) {
+			Log.i(TAG, "Insertion error: " + e.getMessage());
+	//		toastDisplay.showText("Insertion error: " + e.getMessage());
+		}
+		Log.i(TAG, "Video uploaded");
+	}
+
 	private AlbumEntry createAlbum(final String albumName, final String albumDescription) 
 			throws IOException, ServiceException{
 		
@@ -182,5 +240,22 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 			Log.i(TAG, "Album: " + insertedEntry.getName()+ " created sucessfully");
 		
 		return insertedEntry;
+	}
+	
+	private boolean isWifiConnected(){
+		ConnectivityManager connectivity = (ConnectivityManager) con.getSystemService(Context.CONNECTIVITY_SERVICE);
+        //If connectivity object is not null
+        if (connectivity != null) {
+            //Get network info - WIFI internet access
+            NetworkInfo info = connectivity.getNetworkInfo(ConnectivityManager.TYPE_WIFI);
+ 
+            if (info != null) {
+                //Look for whether device is currently connected to WIFI network
+                if (info.isConnected()) {
+                    return true;
+                }
+            }
+        }
+        return false;
 	}
 }

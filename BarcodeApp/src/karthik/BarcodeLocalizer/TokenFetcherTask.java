@@ -13,8 +13,6 @@ import com.google.android.gms.auth.UserRecoverableAuthException;
 class TokenFetcherTask extends AsyncTask<Void, Void, String>{
 
 	private static final String TAG = "PicasaTokenFetcherTask";
-	public static final String TOKEN_MSG = "ACCESS_TOKEN";
-	public static final String EMAIL_MSG = "USERNAME";
 	protected LoginActivity mActivity;
 	
 	protected String mScope;
@@ -49,12 +47,22 @@ class TokenFetcherTask extends AsyncTask<Void, Void, String>{
 		does the task successfully return a token and start the BarcodeActivity. 
 	*/
 		if(token != null){
-			mActivity.setToken(token);
-			Intent intent = new Intent(mActivity, BarcodeActivity.class);
-			intent.putExtra(TOKEN_MSG, token);
-			intent.putExtra(EMAIL_MSG, mEmail);
-			mActivity.startActivity(intent);
-			Log.i(TAG, "Started new BarcodeActivity with token for " + mEmail);
+			mActivity.setToken(token);			
+			if(mActivity.doLocalDecode()){  // decode Barcode locally
+				Intent intent = new Intent(mActivity, BarcodeActivity.class);
+				intent.putExtra(LoginActivity.TOKEN_MSG, token);
+				intent.putExtra(LoginActivity.EMAIL_MSG, mEmail);
+				mActivity.startActivity(intent);
+				Log.i(TAG, "Started new BarcodeActivity with token for " + mEmail);
+			}
+			else{ // start service to upload video to server where the decoding will occur
+				Intent intent = new Intent(mActivity, BackgroundVideoRecorder.class);
+				intent.putExtra(LoginActivity.TOKEN_MSG, token);
+				intent.putExtra(LoginActivity.EMAIL_MSG, mEmail);
+				intent.putExtra(BackgroundVideoRecorder.REQUEST_TYPE, BackgroundVideoRecorder.REQUEST_TYPE_START);
+				mActivity.startService(intent);
+				Log.i(TAG, "Started new BackGroundVideoRecorder with token for " + mEmail);				
+			}
 		}
 	}
 	

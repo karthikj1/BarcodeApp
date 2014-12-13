@@ -43,12 +43,12 @@ import com.google.android.gms.location.LocationClient;
 import com.google.zxing.BinaryBitmap;
 import com.google.zxing.DecodeHintType;
 import com.google.zxing.LuminanceSource;
-import com.google.zxing.MultiFormatReader;
 import com.google.zxing.RGBLuminanceSource;
 import com.google.zxing.Reader;
 import com.google.zxing.ReaderException;
 import com.google.zxing.Result;
 import com.google.zxing.common.HybridBinarizer;
+import com.google.zxing.qrcode.QRCodeReader;
 
 public class BarcodeActivity extends Activity implements CvCameraViewListener2, 
 			GooglePlayServicesClient.ConnectionCallbacks, GooglePlayServicesClient.OnConnectionFailedListener{
@@ -57,7 +57,7 @@ public class BarcodeActivity extends Activity implements CvCameraViewListener2,
     private CameraBridgeViewBase mOpenCvCameraView;
     private static int frameCount = 0;
     private ToastDisplayer toastDisplay;
-    private final Reader reader = new MultiFormatReader();
+    private final Reader reader = new QRCodeReader();
 
     private final Map<DecodeHintType, Object> hints = new EnumMap<DecodeHintType, Object>(DecodeHintType.class);
     private final Scalar barcode_area_colour = new Scalar(0, 0, 255); 
@@ -68,9 +68,7 @@ public class BarcodeActivity extends Activity implements CvCameraViewListener2,
     
     private Barcode barcode = null;
     private int cameraIndex = 0;
-    
-    private SubMenu mCameraMenu;      
-    private MenuItem[] cameraChoice;
+    private boolean localDecode = false;
     
     private String mEmail;
     private String mToken;
@@ -80,6 +78,9 @@ public class BarcodeActivity extends Activity implements CvCameraViewListener2,
     // map used to store barcodes found in this session 
     // used to prevent from uploading multiple images of same barcode within short time span
     private Map<String, Boolean> foundCodes = new HashMap<String, Boolean>();
+    
+    // flag to control if we use mobile data to upload
+    private boolean WifiUploadOnly = true; 
     
     private BaseLoaderCallback  mLoaderCallback = new BaseLoaderCallback(this) {
         @Override
@@ -120,8 +121,8 @@ public class BarcodeActivity extends Activity implements CvCameraViewListener2,
         hints.put(DecodeHintType.TRY_HARDER, Boolean.TRUE);
         
         Intent intent = getIntent();
-        mEmail = intent.getStringExtra(TokenFetcherTask.EMAIL_MSG);
-        mToken = intent.getStringExtra(TokenFetcherTask.TOKEN_MSG);
+        mEmail = intent.getStringExtra(LoginActivity.EMAIL_MSG);
+        mToken = intent.getStringExtra(LoginActivity.TOKEN_MSG);
         
         mLocationClient = new LocationClient(this, this, this);
         
@@ -168,11 +169,17 @@ public class BarcodeActivity extends Activity implements CvCameraViewListener2,
     }
 
     public boolean onCreateOptionsMenu(Menu menu) {
-      mCameraMenu = menu.addSubMenu("Switch Camera");      
-      cameraChoice = new MenuItem[2];
+      SubMenu mCameraMenu = menu.addSubMenu("Switch Camera");      
+      MenuItem[] cameraChoice = new MenuItem[2];
       
       cameraChoice[0] = mCameraMenu.add(1, 0, Menu.NONE, "Rear Camera");
       cameraChoice[1] = mCameraMenu.add(1, 1, Menu.NONE, "Front Camera");
+
+      mCameraMenu = menu.addSubMenu("Local Decoding");      
+      cameraChoice = new MenuItem[2];
+      
+      cameraChoice[0] = mCameraMenu.add(2, 0, Menu.NONE, "Enabled");
+      cameraChoice[1] = mCameraMenu.add(2, 1, Menu.NONE, "Disabled");
 
       return true;
     }
@@ -181,12 +188,19 @@ public class BarcodeActivity extends Activity implements CvCameraViewListener2,
     	if(item.getGroupId() == 1){
 	        cameraIndex = item.getItemId();
 	    	Log.i(TAG, "called onOptionsItemSelected; selected item: " + item + " " + item.getItemId());
-	        Toast.makeText(this,"Switching to " + (String) item.getTitle(), Toast.LENGTH_SHORT).show();;
+	        Toast.makeText(this,"Switching to " + (String) item.getTitle(), Toast.LENGTH_SHORT).show();
+	    	mOpenCvCameraView.disableView();
+	        mOpenCvCameraView.setCameraIndex(cameraIndex);
+	        mOpenCvCameraView.enableView();
     	}
-    	
-    	mOpenCvCameraView.disableView();
-        mOpenCvCameraView.setCameraIndex(cameraIndex);
-        mOpenCvCameraView.enableView();
+    	    	
+    	if(item.getGroupId() == 2){
+	        int choice = item.getItemId();	        
+	        localDecode = (choice == 0) ? true : false;
+
+	    	Log.i(TAG, "called onOptionsItemSelected; selected item: " + item + " " + choice + " localDecode = " + localDecode);
+	        Toast.makeText(this,"Local barcode decoding " + (String) item.getTitle(), Toast.LENGTH_SHORT).show();
+    	}
         
         return true;
     }
@@ -197,64 +211,84 @@ public class BarcodeActivity extends Activity implements CvCameraViewListener2,
     public void onCameraViewStopped() {
     }
 
-    public Mat onCameraFrame(CvCameraViewFrame inputFrame) {
-    	rgba = inputFrame.rgba();
-    	// flip Mat if using front camera to prevent preview being upside down
-    	// fixes a quirk caused by difference in coordinate systems between Android and OpenCV    	
-    	
-    	if(cameraIndex == 1) 
-    		Core.flip(rgba, rgba, 1);
-    	Size sizeRgba = rgba.size();        
-    	Log.d(TAG, "Frame count is " + frameCount++);
-    	try{
-            if (barcode == null)
-                barcode = new MatrixBarcode("", rgba, TryHarderFlags.VERY_SMALL_MATRIX);
-            else{
-                if(!Barcode.updateImage(barcode, rgba)){
-                    barcode = new MatrixBarcode("", rgba, TryHarderFlags.VERY_SMALL_MATRIX);
-                }
-            }
+	public Mat onCameraFrame(CvCameraViewFrame inputFrame) {
+		rgba = inputFrame.rgba();
+		// flip Mat if using front camera to prevent preview being upside down
+		// fixes a quirk caused by difference in coordinate systems between
+		// Android and OpenCV
 
-        // findBarcode() returns a List<CandidateResult> with all possible candidate barcode regions from
-        // within the image. These images then get passed to a decoder(we use ZXing here but could be any decoder)
-        List<CandidateResult> results = barcode.locateBarcode();
-        for (CandidateResult candidate: results){               
-        	String barcodeText =decodeBarcode(candidate); 
-            if(!barcodeText.equals("")){ // we found a barcode
-                Log.d(TAG, "Barcode text is " + barcodeText);            
-                toastDisplay.showText(barcodeText);
-            	// first mark it onscreen
-            	for (int j = 0; j < 3; j++)
-            		Core.line(rgba, candidate.ROI_coords[j], candidate.ROI_coords[j + 1], barcode_area_colour, 2, Core.LINE_AA, 0);
-            	Core.line(rgba, candidate.ROI_coords[3], candidate.ROI_coords[0], barcode_area_colour, 2, Core.LINE_AA, 0);
-            	if (!(foundCodes.containsKey(barcodeText))){
-	            	// we haven't seen this barcode before so it is worth uploading it to Picasa
-            		// first store it in map
-            		Log.i(TAG, "Found new code " + barcodeText);
-            		foundCodes.put(barcodeText, true);
-            		// now upload it to Picasa
-	            	bmp = Bitmap.createBitmap(rgba.cols(), rgba.rows(), Bitmap.Config.ARGB_8888);
-	            	Utils.matToBitmap(rgba, bmp);
-	            	// get location information to store with picture
-	            	mLocation = mLocationClient.getLastLocation();
-	            	if(mLocation != null){ // we got a valid location from LocationServices
-	            		Log.i(TAG, "Got location Lat:" + mLocation.getLatitude() + " Lon: " + mLocation.getLongitude());
-	            	}
-	            	else{
-	            		Log.i(TAG, "Could not get a location value");
-	            	}
-            		new ImageUploader(this, mEmail, bmp, toastDisplay, mToken, mLocation).execute();
-	            }
-            }
-        }
-    	}
-    	catch(IOException ioe){
-            Log.e(TAG, "IO Exception when finding barcode " + ioe.getMessage());
-            toastDisplay.showText("IOException when finding barcode");
-    	}
+		if(!localDecode) // do nothing if localDecode is switched off
+			return rgba;
+		
+		if (cameraIndex == 1)
+			Core.flip(rgba, rgba, 1);
+		Size sizeRgba = rgba.size();
+		Log.d(TAG, "Frame count is " + frameCount++);
+		try {
+			if (barcode == null)
+				barcode = new MatrixBarcode("", rgba,
+						TryHarderFlags.VERY_SMALL_MATRIX);
+			else {
+				if (!Barcode.updateImage(barcode, rgba)) {
+					barcode = new MatrixBarcode("", rgba,
+							TryHarderFlags.VERY_SMALL_MATRIX);
+				}
+			}
 
-        return rgba;
-    }
+			// findBarcode() returns a List<CandidateResult> with all possible
+			// candidate barcode regions from
+			// within the image. These images then get passed to a decoder(we
+			// use ZXing here but could be any decoder)
+			List<CandidateResult> results = barcode.locateBarcode();
+			for (CandidateResult candidate : results) {
+				String barcodeText = decodeBarcode(candidate);
+				if (!barcodeText.equals("")) { // we found a barcode
+					Log.d(TAG, "Barcode text is " + barcodeText);
+					toastDisplay.showText(barcodeText);
+					if (!(foundCodes.containsKey(barcodeText))) {
+						// we haven't seen this barcode before so it is worth
+						// uploading it to Picasa
+						// first store it in map
+
+						Log.i(TAG, "Found new code " + barcodeText);
+						foundCodes.put(barcodeText, true);
+						// mark it onscreen
+						for (int j = 0; j < 3; j++)
+							Core.line(rgba, candidate.ROI_coords[j],
+									candidate.ROI_coords[j + 1],
+									barcode_area_colour, 2, Core.LINE_AA, 0);
+						Core.line(rgba, candidate.ROI_coords[3],
+								candidate.ROI_coords[0], barcode_area_colour,
+								2, Core.LINE_AA, 0);
+
+						// now upload it to Picasa
+						bmp = Bitmap.createBitmap(rgba.cols(), rgba.rows(),
+								Bitmap.Config.ARGB_8888);
+						Utils.matToBitmap(rgba, bmp);
+						// get location information to store with picture
+						mLocation = mLocationClient.getLastLocation();
+						if (mLocation != null) { // we got a valid location from
+													// LocationServices
+							Log.i(TAG,
+									"Got location Lat:"
+											+ mLocation.getLatitude()
+											+ " Lon: "
+											+ mLocation.getLongitude());
+						} else {
+							Log.i(TAG, "Could not get a location value");
+						}
+						new ImageUploader(this, mEmail, bmp, toastDisplay,
+								mToken, mLocation, WifiUploadOnly).execute();
+					}
+				}
+			}
+		} catch (IOException ioe) {
+			Log.e(TAG, "IO Exception when finding barcode " + ioe.getMessage());
+			toastDisplay.showText("IOException when finding barcode");
+		}
+
+		return rgba;
+	}
 
     private String decodeBarcode(CandidateResult cr) {
         // decodes barcode using ZXing and either print the barcode text or says no barcode found
