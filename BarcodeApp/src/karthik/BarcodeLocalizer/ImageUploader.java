@@ -225,6 +225,7 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 	//		toastDisplay.showText("Insertion error: " + e.getMessage());
 		}
 		Log.i(TAG, "Video uploaded");
+		video.delete(); // delete the video file from storage after it has been uploaded
 	}
 
 	private AlbumEntry createAlbum(final String albumName, final String albumDescription) 

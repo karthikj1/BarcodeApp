@@ -33,7 +33,6 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     
     // flag to control if we use mobile data to upload
     private boolean WifiUploadOnly = true; 
-
     private static boolean RECORD_AUDIO = false;
     
     private int NOTIFICATION_ID = 111;
@@ -172,24 +171,26 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
 
         mediaRecorder.setCamera(camera);
         mediaRecorder.setOrientationHint(90);
-
-        if (RECORD_AUDIO){
-	        mediaRecorder.setAudioSource(MediaRecorder.AudioSource.CAMCORDER);
-	        mediaRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);	        
-	        mediaRecorder.setProfile(CamcorderProfile.get(CamcorderProfile.QUALITY_HIGH));
-        }
-        else{  // record video only - no audio
+  
+        if(RECORD_AUDIO){
+        	mediaRecorder.setAudioSource(MediaRecorder.AudioSource.CAMCORDER);
+        	mediaRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
+        
+        	mediaRecorder.setProfile(CamcorderProfile.get(CamcorderProfile.QUALITY_HIGH));
+        }else{
 	        int targetFrameRate = 15;
 	        CamcorderProfile profile = CamcorderProfile.get(CamcorderProfile.QUALITY_HIGH);
 	        
+        	mediaRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
 			mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
 			mediaRecorder.setVideoFrameRate(targetFrameRate);
 			mediaRecorder.setVideoSize(profile.videoFrameWidth,
 					profile.videoFrameHeight);
 			mediaRecorder.setVideoEncodingBitRate(profile.videoBitRate);
 			mediaRecorder.setVideoEncoder(profile.videoCodec);
-	    }        
-		mediaRecorder.setOutputFile(outputFile);
+	    }
+
+        mediaRecorder.setOutputFile(outputFile);
         Log.d(TAG, "Saving file to " + outputFile);
         mediaRecorder.setPreviewDisplay(surfaceHolder.getSurface());
         mediaRecorder.setMaxDuration(-1);
