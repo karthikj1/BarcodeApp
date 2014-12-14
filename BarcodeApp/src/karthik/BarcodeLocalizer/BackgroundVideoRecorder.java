@@ -25,7 +25,8 @@ import android.view.WindowManager;
 import android.view.WindowManager.LayoutParams;
 import android.widget.Toast;
 
-public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Callback {
+public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Callback,
+				MediaRecorder.OnInfoListener{
 
 	private WindowManager windowManager;
     private SurfaceView surfaceView;
@@ -51,7 +52,9 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     private String outputFile;
   
     private Timer uploadTimer;
-    private long UPLOAD_INTERVAL = 60000;
+    private static long UPLOAD_INTERVAL = 75000;
+    private static long MAX_VIDEO_FILE_SIZE = 50000000; // Picasa file size limit of 100MB
+    private boolean VIDEO_RECORDER_ON = false;
     
     @Override
     public void onCreate() {
@@ -89,8 +92,8 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     	
     	if (requestType.equals(REQUEST_TYPE_PAUSE)){
         	Log.i(TAG, "Paused recording for user " + mEmail);
-        	mediaRecorder.stop();
-        	releaseMediaRecorder();
+        	stopMediaRecorder();
+        	// releaseMediaRecorder();
         	createStopPlayNotification();
         	// upload video
         	uploadTimer.cancel();
@@ -106,6 +109,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
 
     	if (requestType.equals(REQUEST_TYPE_STOP)){
         	Log.i(TAG, "Stopped service for user " + mEmail);
+        	// cancel timer and upload video unless we were already in paused state
         	uploadTimer.cancel();
            	uploadVideo();
             stopSelf();
@@ -120,8 +124,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
 	private void uploadVideo() {
 		new ImageUploader(this, mEmail, new File(outputFile), token, null, WifiUploadOnly).execute();
 	}
-  
-    
+      
     private void createStopPauseNotification() {
     	
     	PendingIntent stopIntent = PendingIntent.getService(this, 0, getIntent(REQUEST_TYPE_STOP), PendingIntent.FLAG_CANCEL_CURRENT);    	    
@@ -194,15 +197,15 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
 
         mediaRecorder.setCamera(camera);
         mediaRecorder.setOrientationHint(90);
-  
+        CamcorderProfile profile = getValidCamcorderProfile();
+        
         if(RECORD_AUDIO){
         	mediaRecorder.setAudioSource(MediaRecorder.AudioSource.CAMCORDER);
         	mediaRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
         
-        	mediaRecorder.setProfile(CamcorderProfile.get(CamcorderProfile.QUALITY_HIGH));
+        	mediaRecorder.setProfile(profile);
         }else{
 	        int targetFrameRate = 15;
-	        CamcorderProfile profile = CamcorderProfile.get(CamcorderProfile.QUALITY_HIGH);
 	        
         	mediaRecorder.setVideoSource(MediaRecorder.VideoSource.CAMERA);
 			mediaRecorder.setOutputFormat(MediaRecorder.OutputFormat.MPEG_4);
@@ -217,16 +220,19 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
         Log.d(TAG, "Saving file to " + outputFile);
         mediaRecorder.setPreviewDisplay(surfaceHolder.getSurface());
         mediaRecorder.setMaxDuration(-1);
+        mediaRecorder.setMaxFileSize(MAX_VIDEO_FILE_SIZE);
+        mediaRecorder.setOnInfoListener(this);
         
         try {
             mediaRecorder.prepare();
             mediaRecorder.start();
+            VIDEO_RECORDER_ON = true;
         } catch (IllegalStateException e) {
             Log.d(TAG, "IllegalStateException preparing MediaRecorder: " + e.getMessage());
-            releaseMediaRecorder();
+            stopMediaRecorder();
         } catch (IOException e) {
             Log.d(TAG, "IOException preparing MediaRecorder: " + e.getMessage());
-            releaseMediaRecorder();
+            stopMediaRecorder();
         }
 	}
 
@@ -235,18 +241,26 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     public void onDestroy() {
     	
     	Log.v(TAG, "BackgroundVideoRecorder Service is being destroyed");
-        mediaRecorder.stop();
-        releaseMediaRecorder();
-        
+        stopMediaRecorder();
         windowManager.removeView(surfaceView);
     }
 
-    private void releaseMediaRecorder(){
-    	// release MediaRecorder object when not needed
-        mediaRecorder.release();
-
-        camera.lock();
-        camera.release();    	
+    private void stopMediaRecorder(){
+    	
+    	try{
+    		if(VIDEO_RECORDER_ON){
+    			mediaRecorder.stop();
+    	        Log.v(TAG, "Stopped media recorder");
+    	        mediaRecorder.release();
+    	        camera.lock();
+    	        camera.release();    
+        		VIDEO_RECORDER_ON = false;    	
+    	        Log.v(TAG, "Released camera and media recorder");
+    		}
+    	}catch(RuntimeException e){
+    		// do nothing - happens if user pushed pause or stop button when recording
+    		// was already stopped
+    	}
     }
     @Override
     public void surfaceChanged(SurfaceHolder surfaceHolder, int format, int width, int height) {}
@@ -277,13 +291,46 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
 			@Override
 			public void run() {
 				// first stop recording
-	        	mediaRecorder.stop();
-	        	releaseMediaRecorder();
+	        	stopMediaRecorder();
+	        	// releaseMediaRecorder();
 	        	// then upload video in background AsyncTask
 	        	uploadVideo();
 	        	// now reinitialize MediaRecorder and Camera and start recording video again
 	        	startRecordingVideo(surfHolder);
 			}
 		}, interval, interval);
+	}
+	
+	private CamcorderProfile getValidCamcorderProfile(){
+		CamcorderProfile profile;
+		
+		if (CamcorderProfile.hasProfile(CamcorderProfile.QUALITY_TIME_LAPSE_720P)){
+			profile = CamcorderProfile.get(CamcorderProfile.QUALITY_TIME_LAPSE_720P);
+			return profile;
+		}
+		
+		if (CamcorderProfile.hasProfile(CamcorderProfile.QUALITY_720P))
+			profile = CamcorderProfile.get(CamcorderProfile.QUALITY_720P);
+		else
+			profile = CamcorderProfile.get(CamcorderProfile.QUALITY_HIGH);
+		
+		return profile;
+	}
+	
+	public void onInfo (MediaRecorder mr, int what, int extra){
+		// called by MediaRecorder if we go over max file size
+		if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED){
+			Log.d(TAG, "MediaRecorder hit max file size");
+			uploadTimer.cancel();
+			
+			stopMediaRecorder();
+			uploadVideo();
+			
+			startRecordingVideo(surfHolder);
+			startUploadTimer(UPLOAD_INTERVAL);
+		}
+		else{ //log the event
+			Log.d(TAG, " MediaRecorder.onInfo called with " + what + " extra " + extra);
+		}
 	}
 }
