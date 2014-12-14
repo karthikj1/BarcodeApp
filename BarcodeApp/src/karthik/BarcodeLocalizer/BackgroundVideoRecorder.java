@@ -13,8 +13,10 @@ import android.content.Context;
 import android.content.Intent;
 import android.graphics.PixelFormat;
 import android.hardware.Camera;
+import android.location.Location;
 import android.media.CamcorderProfile;
 import android.media.MediaRecorder;
+import android.os.Bundle;
 import android.os.Environment;
 import android.os.IBinder;
 import android.util.Log;
@@ -25,8 +27,13 @@ import android.view.WindowManager;
 import android.view.WindowManager.LayoutParams;
 import android.widget.Toast;
 
+import com.google.android.gms.common.ConnectionResult;
+import com.google.android.gms.common.GooglePlayServicesClient;
+import com.google.android.gms.location.LocationClient;
+
 public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Callback,
-				MediaRecorder.OnInfoListener{
+				MediaRecorder.OnInfoListener, GooglePlayServicesClient.ConnectionCallbacks, 
+				GooglePlayServicesClient.OnConnectionFailedListener{
 
 	private WindowManager windowManager;
     private SurfaceView surfaceView;
@@ -56,6 +63,9 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     private static long MAX_VIDEO_FILE_SIZE = 50000000; // Picasa file size limit of 100MB
     private boolean VIDEO_RECORDER_ON = false;
     
+    private LocationClient mLocationClient;
+    private Location mLocation;
+
     @Override
     public void onCreate() {
     	
@@ -72,6 +82,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
         layoutParams.gravity = Gravity.LEFT | Gravity.TOP;
         windowManager.addView(surfaceView, layoutParams);
         surfaceView.getHolder().addCallback(this);
+        mLocationClient = new LocationClient(this, this, this);
     }
 
     public int onStartCommand(Intent intent, int flags, int startID){
@@ -88,6 +99,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
         	// this is called only on the first creation of this class
         	// so onSurfaceCreated starts the video recording
         	startUploadTimer(UPLOAD_INTERVAL);
+        	mLocationClient.connect();
     	}
     	
     	if (requestType.equals(REQUEST_TYPE_PAUSE)){
@@ -96,7 +108,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
         	// releaseMediaRecorder();
         	createStopPlayNotification();
         	// upload video
-        	uploadTimer.cancel();
+//        	uploadTimer.cancel();
         	uploadVideo();
     	}
     	    	
@@ -109,8 +121,9 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
 
     	if (requestType.equals(REQUEST_TYPE_STOP)){
         	Log.i(TAG, "Stopped service for user " + mEmail);
-        	// cancel timer and upload video unless we were already in paused state
-        	uploadTimer.cancel();
+        	// cancel timer and upload video
+        	stopMediaRecorder();
+  //      	uploadTimer.cancel();
            	uploadVideo();
             stopSelf();
     	}
@@ -122,7 +135,11 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
 	 * 
 	 */
 	private void uploadVideo() {
-		new ImageUploader(this, mEmail, new File(outputFile), token, null, WifiUploadOnly).execute();
+		if(mLocationClient.isConnected())
+			mLocation = mLocationClient.getLastLocation();
+		else
+			mLocation = null;
+		new ImageUploader(this, mEmail, new File(outputFile), token, mLocation, WifiUploadOnly).execute();
 	}
       
     private void createStopPauseNotification() {
@@ -130,7 +147,6 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     	PendingIntent stopIntent = PendingIntent.getService(this, 0, getIntent(REQUEST_TYPE_STOP), PendingIntent.FLAG_CANCEL_CURRENT);    	    
     	PendingIntent pauseIntent = PendingIntent.getService(this, 1, getIntent(REQUEST_TYPE_PAUSE),  PendingIntent.FLAG_CANCEL_CURRENT);
 
-    	Log.v(TAG, "Created intents");
     	// Start foreground service to avoid unexpected kill
         Notification notification = new Notification.Builder(this)
             .setContentTitle("Helios Background Video Recorder")
@@ -139,7 +155,6 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
             .addAction(R.drawable.pause, "Pause", pauseIntent)
             .addAction(R.drawable.stop, "Stop", stopIntent)
             .build();
-        Log.v(TAG, "Created notification");
         startForeground(NOTIFICATION_ID, notification);
     }
 
@@ -148,7 +163,6 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     	PendingIntent stopIntent = PendingIntent.getService(this, 0, getIntent(REQUEST_TYPE_STOP), PendingIntent.FLAG_CANCEL_CURRENT);    	    
     	PendingIntent playIntent = PendingIntent.getService(this, 2, getIntent(REQUEST_TYPE_PLAY),  PendingIntent.FLAG_CANCEL_CURRENT);
 
-    	Log.v(TAG, "Created stop and play intents");
     	// Start foreground service to avoid unexpected kill
         Notification notification = new Notification.Builder(this)
             .setContentTitle("Helios Background Video Recorder")
@@ -157,7 +171,6 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
             .addAction(R.drawable.play, "Play", playIntent)
             .addAction(R.drawable.stop, "Stop", stopIntent)
             .build();
-        Log.v(TAG, "Created stop and play notification");
         startForeground(NOTIFICATION_ID, notification);
     }
 
@@ -167,7 +180,6 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
 		intent.putExtra(LoginActivity.TOKEN_MSG, token);
 		intent.putExtra(LoginActivity.EMAIL_MSG, mEmail);
 
-		Log.v(TAG, "Created " + requestType + " intent for " + mEmail);
     	return intent;
     	
     }
@@ -190,6 +202,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     	if(camera == null){
     		Toast.makeText(this, "Camera unavailable or in use", Toast.LENGTH_LONG).show();
     		createStopPlayNotification();
+    		stopMediaRecorder();
     		return;
     	}
         mediaRecorder = new MediaRecorder();
@@ -243,10 +256,12 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     	Log.v(TAG, "BackgroundVideoRecorder Service is being destroyed");
         stopMediaRecorder();
         windowManager.removeView(surfaceView);
+        mLocationClient.disconnect();
     }
 
     private void stopMediaRecorder(){
     	
+    	uploadTimer.cancel();
     	try{
     		if(VIDEO_RECORDER_ON){
     			mediaRecorder.stop();
@@ -321,7 +336,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
 		// called by MediaRecorder if we go over max file size
 		if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED){
 			Log.d(TAG, "MediaRecorder hit max file size");
-			uploadTimer.cancel();
+//			uploadTimer.cancel();
 			
 			stopMediaRecorder();
 			uploadVideo();
@@ -333,4 +348,36 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
 			Log.d(TAG, " MediaRecorder.onInfo called with " + what + " extra " + extra);
 		}
 	}
+	
+    /*
+     * Callback methods for Google Location Services
+     */
+    
+    public void onConnected(Bundle dataBundle){
+    	Log.v(TAG, "Location information connected and available.");
+    }
+    
+    /*
+     * Called by Location Services if the connection to the
+     * location client drops because of an error.
+     */
+    @Override
+    public void onDisconnected() {
+        // Display the connection status
+    	Log.v(TAG, "Disconnected. Location information no longer available.");
+    }    
+    /*
+     * Called by Location Services if the attempt to
+     * Location Services fails.
+     */
+    @Override
+    public void onConnectionFailed(ConnectionResult connectionResult) {
+    	/*
+    	 * we simply notify user that Locations will not be recorded
+    	 */
+        	Log.e(TAG, "Error when connecting to Location Services " + connectionResult.getErrorCode() + 
+        				" Location services not available");
+            Toast.makeText(this, "Location services not available", Toast.LENGTH_LONG);
+    }
+
 }

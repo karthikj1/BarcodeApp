@@ -211,26 +211,28 @@ public class ImageUploader extends AsyncTask<Void, Void, Boolean> {
 			throws IOException, ServiceException {
 
 		Log.d(TAG, "Trying to upload video " + video.getName() + "...");
-		PhotoEntry myPhoto = new PhotoEntry();
+		PhotoEntry myVideo = new PhotoEntry();
 		
 		String title = video.getName();
-		myPhoto.setTitle(new PlainTextConstruct(title));
+		myVideo.setTitle(new PlainTextConstruct(title));
 
 		// read MPEG-4 video file and make it a byte array
 
 		MediaFileSource myMedia = new MediaFileSource(video, "video/mpeg4");
-		myPhoto.setMediaSource(myMedia);
+		myVideo.setMediaSource(myMedia);
 		
-		if(pic_location != null) // only set location if it is a valid Location object
-			myPhoto.setGeoLocation(pic_location.getLatitude(), pic_location.getLongitude());
+		if(pic_location != null){ // only set location if it is a valid Location object
+			myVideo.setGeoLocation(pic_location.getLatitude(), pic_location.getLongitude());
+			Log.v(TAG, "Uploading video with location Lat:" + pic_location.getLatitude() + " Long:" + pic_location.getLongitude());
+		}
 		
 		try {
-			picasaService.insert(albumURL, myPhoto);
+			picasaService.insert(albumURL, myVideo);
+			Log.d(TAG, "Uploaded video "+ video.getName());
 		} catch (Exception e) {
 			Log.w(TAG, "Insertion error: " + e.getMessage());
-			displayToast("Insertion error: " + e.getMessage(), Toast.LENGTH_LONG);
+			displayToast("Video upload error: " + e.getMessage(), Toast.LENGTH_LONG);
 		}
-		Log.d(TAG, "Uploaded video "+ video.getName());
 		removeTempVideoFile(); // delete the video file from storage after it has been uploaded
 	}
 
