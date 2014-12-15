@@ -14,6 +14,7 @@ import android.content.Intent;
 import android.graphics.PixelFormat;
 import android.hardware.Camera;
 import android.location.Location;
+import android.media.AudioManager;
 import android.media.CamcorderProfile;
 import android.media.MediaRecorder;
 import android.os.Bundle;
@@ -62,6 +63,10 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     private static long UPLOAD_INTERVAL = 75000;
     private static long MAX_VIDEO_FILE_SIZE = 50000000; // Picasa file size limit of 100MB
     private boolean VIDEO_RECORDER_ON = false;
+
+    private AudioManager audioManager;
+    private int[] audioStreams;
+    private int[] audioStreamVolumes;
     
     private LocationClient mLocationClient;
     private Location mLocation;
@@ -83,6 +88,9 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
         windowManager.addView(surfaceView, layoutParams);
         surfaceView.getHolder().addCallback(this);
         mLocationClient = new LocationClient(this, this, this);
+        
+	    getAudioManagerStreams();
+
     }
 
     public int onStartCommand(Intent intent, int flags, int startID){
@@ -105,10 +113,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     	if (requestType.equals(REQUEST_TYPE_PAUSE)){
         	Log.i(TAG, "Paused recording for user " + mEmail);
         	stopMediaRecorder();
-        	// releaseMediaRecorder();
         	createStopPlayNotification();
-        	// upload video
-//        	uploadTimer.cancel();
         	uploadVideo();
     	}
     	    	
@@ -123,7 +128,6 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
         	Log.i(TAG, "Stopped service for user " + mEmail);
         	// cancel timer and upload video
         	stopMediaRecorder();
-  //      	uploadTimer.cancel();
            	uploadVideo();
             stopSelf();
     	}
@@ -238,7 +242,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
         
         try {
             mediaRecorder.prepare();
-            mediaRecorder.start();
+            startMediaRecorder();
             VIDEO_RECORDER_ON = true;
         } catch (IllegalStateException e) {
             Log.d(TAG, "IllegalStateException preparing MediaRecorder: " + e.getMessage());
@@ -259,8 +263,24 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
         mLocationClient.disconnect();
     }
 
-    private void stopMediaRecorder(){
-    	
+	private void startMediaRecorder() {
+		setMuteAll(); // mute beep from MediaRecorder starting
+		
+		mediaRecorder.start();
+		/* TODO: below is there because the unMute gets executed before
+		 * the MediaRecorder has started in its thread so we still hear the beep
+		 * Bad practice to go to sleep on the main thread but we do it for now
+		 * to avoid the constant beeping when MediaRecorder starts
+		 */
+		try{
+			Thread.sleep(250);
+		}catch(InterruptedException ie){}
+		unMuteAll();
+	}
+
+	private void stopMediaRecorder(){
+		setMuteAll(); // mute beep from MediaRecorder stopping
+
     	uploadTimer.cancel();
     	try{
     		if(VIDEO_RECORDER_ON){
@@ -276,6 +296,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     		// do nothing - happens if user pushed pause or stop button when recording
     		// was already stopped
     	}
+    	unMuteAll(); // return volume to normal
     }
     @Override
     public void surfaceChanged(SurfaceHolder surfaceHolder, int format, int width, int height) {}
@@ -336,7 +357,6 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
 		// called by MediaRecorder if we go over max file size
 		if (what == MediaRecorder.MEDIA_RECORDER_INFO_MAX_FILESIZE_REACHED){
 			Log.d(TAG, "MediaRecorder hit max file size");
-//			uploadTimer.cancel();
 			
 			stopMediaRecorder();
 			uploadVideo();
@@ -349,7 +369,47 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
 		}
 	}
 	
-    /*
+	// helper functions to mute and unmute volume
+	// this prevents the constant beeping when MediaRecorder starts and stops
+	
+	private void getAudioManagerStreams() {
+		// different versions of Android use different streams
+		// so we have to mute them all
+		audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+	    audioStreams = new int[] { AudioManager.STREAM_ALARM,
+		        AudioManager.STREAM_DTMF, AudioManager.STREAM_MUSIC,
+		        AudioManager.STREAM_RING, AudioManager.STREAM_SYSTEM,
+		        AudioManager.STREAM_VOICE_CALL };
+	    
+	    int numStreams = audioStreams.length;
+	    audioStreamVolumes = new int[numStreams];
+	    for (int r = 0; r < numStreams; r++){
+	    	audioStreamVolumes[r] = audioManager.getStreamVolume(audioStreams[r]);
+	    	Log.v(TAG + "_getStreams", "Volume for stream " + r + " is " + audioStreamVolumes[r]);
+	    }
+
+	}
+
+	private void setMuteAll() {
+
+		Log.v(TAG, "Muting sounds");
+		int numStreams = audioStreams.length;
+	    for (int r = 0; r < numStreams; r++){
+	        audioManager.setStreamVolume(audioStreams[r], 0, 0);
+	    }
+	}
+	
+	private void unMuteAll() {
+
+		Log.v(TAG, "Re-enabling sounds");
+		int numStreams = audioStreams.length;
+	    for (int r = 0; r < numStreams; r++){
+	    	Log.v(TAG + "_unMute", "resetting volume for stream " + r + " to " + audioStreamVolumes[r]);
+	        audioManager.setStreamVolume(audioStreams[r], audioStreamVolumes[r], 0);
+	    }
+	}
+
+	/*
      * Callback methods for Google Location Services
      */
     
@@ -377,7 +437,7 @@ public class BackgroundVideoRecorder extends Service implements SurfaceHolder.Ca
     	 */
         	Log.e(TAG, "Error when connecting to Location Services " + connectionResult.getErrorCode() + 
         				" Location services not available");
-            Toast.makeText(this, "Location services not available", Toast.LENGTH_LONG);
+            Toast.makeText(this, "Location services not available", Toast.LENGTH_LONG).show();
     }
 
 }
