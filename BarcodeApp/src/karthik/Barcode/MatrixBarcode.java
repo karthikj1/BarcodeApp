@@ -225,19 +225,20 @@ public class MatrixBarcode extends Barcode {
                 prob_mat_right_col = java.lang.Math.min((col_offset + probMatTileSize), img_details.probMatCols);
 
                 // calculate number of edges in the tile using the already calculated integral image 
-                num_edges = (int) calc_rect_sum(img_details.edgeDensity, i, bottom_row, j, right_col);
+                num_edges = (int) calc_rect_sum(img_details.edgeDensity, img_details.histNumRows, 
+                        img_details.histNumCols, i, bottom_row, j, right_col);
                 
                 if (num_edges < threshold_min_gradient_edges) 
                 // if gradient density is below the threshold level, prob of matrix code in this tile is 0
                     continue;
-
+                
                 for(int r = 0; r < img_details.bins; r++){
-                    img_details.histArray[r] = (int) calc_rect_sum(img_details.histIntegrals.get(r), i, bottom_row, j, right_col);
+
+                    img_details.histArray[r] = (int) calc_rect_sum(img_details.histIntegralArrays[r], img_details.histNumRows, 
+                        img_details.histNumCols, i, bottom_row, j, right_col);
                 }
                 
                 hist = Converters.vector_int_to_Mat(Arrays.asList(img_details.histArray));
-                // imgWindow = img_details.gradient_direction.submat(i, bottom_row, j, right_col);
-                // Imgproc.calcHist(Arrays.asList(imgWindow), mChannels, histMask, hist, mHistSize, mRanges, false);
                 Core.sortIdx(hist, histIdx, Core.SORT_EVERY_COLUMN + Core.SORT_DESCENDING);
 
                 max_angle_idx = (int) histIdx.get(0, 0)[0];
@@ -263,24 +264,32 @@ public class MatrixBarcode extends Barcode {
                 
     }
     
-    private Mat calcEdgeDensityIntegralImage(){
+    private int[] calcEdgeDensityIntegralImage(){
         // calculates number of edges in the image and returns it as an integral image
         // first set all non-zero gradient magnitude points (i.e. all edges) to 1
         // then calculate the integral image from the above
         // we can now calculate the number of edges in any tile in the matrix using the integral image
         
-        Imgproc.threshold(img_details.gradient_magnitude, img_details.edgeDensity, 1, 1, Imgproc.THRESH_BINARY);        
-        Imgproc.integral(img_details.edgeDensity, img_details.edgeDensity);        
+        Imgproc.threshold(img_details.gradient_magnitude, img_details.temp_integral, 1, 1, Imgproc.THRESH_BINARY);        
+        Imgproc.integral(img_details.temp_integral, img_details.temp_integral);        
+        
+        img_details.temp_integral.get(0, 0, img_details.edgeDensity);
         
         return img_details.edgeDensity;
     }
         
     private void calcHistograms(){        
+        /* calculate histogram by masking for angles inside each bin, thresholding to set all those values to 1
+           and then creating an integral image. We can now calculate histograms for any size tile within 
+           the original image more efficiently than by using the built in calcHist method which would have to 
+           recalculate the histogram for every tile size.
+        */
         Mat target;
         angles = img_details.gradient_direction.clone();
+        target  = img_details.temp_integral;
 
         for(int binRange = 1, integralIndex = 0; binRange < 181; binRange += img_details.BIN_WIDTH, integralIndex++){            
-            target  = img_details.histIntegrals.get(integralIndex);
+            target.setTo(ZERO_SCALAR);
             
             img_details.gradient_direction.copyTo(angles);
             Core.inRange(img_details.gradient_direction, scalarDict.get(binRange), scalarDict.get(binRange + img_details.BIN_WIDTH), mask);
@@ -288,8 +297,13 @@ public class MatrixBarcode extends Barcode {
             angles.setTo(ZERO_SCALAR, mask);
             
             Imgproc.threshold(angles, target, 0, 1, Imgproc.THRESH_BINARY);
-            Imgproc.integral(target, target);            
+            Imgproc.integral(target, target);
+            target.get(0, 0, img_details.histIntegralArrays[integralIndex]);
         }
+
+        // there is some problem if the created integral image does not have exactly one channel
+        assert (target.channels() == 1) : "Integral does not have exactly one channel";
+
     }
         
  }

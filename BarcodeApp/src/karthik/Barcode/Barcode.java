@@ -218,27 +218,24 @@ public abstract class Barcode {
         Imgproc.dilate(img_details.probabilities, img_details.probabilities, large_elemSE);
     }
 
-    protected double calc_rect_sum(Mat integral, int top_row, int bottom_row, int left_col, int right_col) {
+    protected int calc_rect_sum(int[] integralArray, int numRows, int numCols, int top_row, int bottom_row, int left_col, int right_col) {
         // calculates sum of values within a rectangle from a given integral image
         // if the right col or bottom row falls outside the image bounds, sets it to max col and max row
         // in actuality, top_row - 1 and left_col - 1 are used - see p. 185 of Learning OpenCV ed. 1 by Gary Bradski for an explanation
         // if top_row or left_col are outside image boundaries, it uses 0 for their value
         // this is useful when one part of the rectangle lies outside the image bounds
         
-        double top_left, top_right, bottom_left, bottom_right;
-        double sum;
-
-        int numRows = integral.rows();
-        int numCols = integral.cols();
-        
+        int top_left, top_right, bottom_left, bottom_right;
+        int sum;
+                
         // do bounds checking on provided parameters
         bottom_row = java.lang.Math.min(bottom_row, numRows);
         right_col = java.lang.Math.min(right_col, numCols);
         
-        bottom_right = integral.get(bottom_row, right_col)[0];
-        top_right = (top_row < 0) ? 0 : integral.get(top_row, right_col)[0];
-        top_left = (left_col < 0 || top_row < 0) ? 0 : integral.get(top_row, left_col)[0];
-        bottom_left = (left_col < 0) ? 0 : integral.get(bottom_row, left_col)[0];
+        bottom_right = integralArray[bottom_row * numCols + right_col];
+        top_right = (top_row < 0) ? 0 : integralArray[top_row * numCols + right_col];
+        top_left = (left_col < 0 || top_row < 0) ? 0 : integralArray[top_row * numCols + left_col];
+        bottom_left = (left_col < 0) ? 0 : integralArray[bottom_row * numCols + left_col];
 
         sum = (bottom_right - bottom_left - top_right + top_left);
         return sum;

@@ -54,11 +54,13 @@ class ImageInfo {
     protected static final int bins = 180 / BIN_WIDTH;
 
     int probMatRows, probMatCols;
-    Mat edgeDensity;
     List<Mat> histograms = new ArrayList<Mat>();
-    List<Mat> histIntegrals = new ArrayList<Mat>();
     
+    Mat temp_integral = new Mat();
+    int[] edgeDensity;
+    int[][] histIntegralArrays = new int[bins][];
     Integer[] histArray = new Integer[bins];
+    int histNumRows, histNumCols;
     
     ImageInfo(Mat src) {
        src_original = src;
@@ -81,11 +83,17 @@ class ImageInfo {
         src_grayscale = new Mat(rows, cols, CvType.CV_32F);
         probMatRows = probabilities.rows();
         probMatCols = probabilities.cols();
-        edgeDensity = Mat.zeros((int) (rows/(1.0 * searchParams.tileSize)),(int) (cols/(1.0 * searchParams.tileSize)), CvType.CV_16U);
+        
+        histNumCols = cols + 1;
+        histNumRows = rows + 1;
+        edgeDensity = new int[(cols + 1) * (rows + 1) * temp_integral.channels()];  
+        
         // create Mat objects to contain integral histograms
         for(int r = 0; r < bins; r++){
             histograms.add(Mat.zeros((int) (rows/(1.0 * searchParams.tileSize) + 1), (int) (cols/(1.0 * searchParams.tileSize) + 1), CvType.CV_32F));
-            histIntegrals.add(Mat.zeros((int)(rows/(1.0 * searchParams.tileSize) + 1), (int) (cols/(1.0 * searchParams.tileSize) + 1), CvType.CV_32FC1));
+            // below includes channels for completeness but temp_integral should only have one channel
+            // one extra row and column as required for integral images
+            histIntegralArrays[r] = new int[(cols + 1) * (rows + 1) * temp_integral.channels()];  
         }
     }
     
